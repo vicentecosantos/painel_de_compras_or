@@ -9,7 +9,6 @@ st.markdown("Visão atualizável para engenheiros e suprimentos.")
 
 @st.cache_data
 def load_data():
-    # NOME DO ARQUIVO ATUALIZADO AQUI:
     df = pd.read_excel("Relatorio_Painel de Compras.xlsx")
     if 'Data da solicitação' in df.columns:
         df['Data da solicitação'] = pd.to_datetime(df['Data da solicitação'], dayfirst=True, errors='coerce')
@@ -18,7 +17,6 @@ def load_data():
 try:
     df = load_data()
 except FileNotFoundError:
-    # MENSAGEM DE ERRO ATUALIZADA:
     st.error("Arquivo 'Relatorio_Painel de Compras.xlsx' não encontrado. Verifique se ele está na mesma pasta.")
     st.stop()
 
@@ -30,6 +28,16 @@ obras_selecionadas = st.sidebar.multiselect(
     "Filtrar por Obra:",
     options=obras_disponiveis,
     default=obras_disponiveis
+)
+
+# NOVO: Filtro por Número da Solicitação (Item 5)
+solicitacoes_disponiveis = df['Nº da Solicitação'].dropna().unique().astype(str).tolist()
+solicitacoes_disponiveis.sort()
+solicitacoes_selecionadas = st.sidebar.multiselect(
+    "Nº da Solicitação:",
+    options=solicitacoes_disponiveis,
+    # Se o usuário não selecionar nada, o padrão é mostrar todas (para não começar com a tela vazia)
+    default=[] 
 )
 
 st.sidebar.markdown("---")
@@ -47,11 +55,15 @@ with col_dt1:
 with col_dt2:
     data_fim = st.date_input("Data Final", value=max_date_val.date(), format="DD/MM/YYYY")
 
+# Aplicar os filtros aos dados (com suporte para quando o filtro de solicitação está vazio)
 df_filtrado = df[
     (df['Obra'].isin(obras_selecionadas)) & 
     (df['Data da solicitação'].dt.date >= data_inicio) & 
     (df['Data da solicitação'].dt.date <= data_fim)
 ]
+if solicitacoes_selecionadas:
+    df_filtrado = df_filtrado[df_filtrado['Nº da Solicitação'].astype(str).isin(solicitacoes_selecionadas)]
+
 
 # --- LÓGICA DE FILTRAGEM ---
 mask_sem_pedido = df_filtrado['N° do Pedido'].isna()
@@ -76,32 +88,63 @@ def render_card(row, tipo):
         st.caption(f"Obra: {row.get('Obra', '-')}")
         
         if tipo == "insumo":
-            st.text(f"Qtd: {row.get('Quantidade solicitada', 0)} {row.get('Unidade de movimento', '')}")
+            # NOVO: Qtd formatada para 2 casas decimais e Nº Solicitação movido (Item 1 e 2)
+            qtd_sol = float(row.get('Quantidade solicitada', 0))
+            un = row.get('Unidade de movimento', '')
+            st.text(f"Qtd: {qtd_sol:,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            st.text(f"Nº Solicitação: {row.get('Nº da Solicitação', '-')}")
+            
             status = row.get('Situação da solicitação', 'Pendente')
             cor = "blue" if status == "Parcialmente atendida" else "orange"
             st.markdown(f":{cor}[**{status}**]")
             
+            with st.expander("Ver Detalhes"):
+                data_sol = row.get('Data da solicitação')
+                data_sol_str = data_sol.strftime('%d/%m/%Y') if pd.notna(data_sol) else '-'
+                st.write(f"**Data da solicitação:** {data_sol_str}")
+
+            
         elif tipo == "pedido":
-            st.text(f"Fornecedor: {row.get('Fornecedor', '-')}")
+            # NOVO: Quantidade Pendente e Formatação (Item 4)
+            qtd_pendente = row.get('Saldo', 0)
+            if pd.isna(qtd_pendente): qtd_pendente = 0
+            un = row.get('Unidade de movimento', '')
+            st.text(f"Qtd pendente: {float(qtd_pendente):,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            
             st.text(f"Pedido: {row.get('N° do Pedido', '-')}")
+            
             status = row.get('Situação do pedido', 'Pendente')
             st.markdown(f":orange[**{status}**]")
             
+            # NOVO: Fornecedor movido para Detalhes (Item 3)
+            with st.expander("Ver Detalhes"):
+                st.write(f"**Nº da Solicitação:** {row.get('Nº da Solicitação', '-')}")
+                st.write(f"**Fornecedor:** {row.get('Fornecedor', '-')}")
+                data_sol = row.get('Data da solicitação')
+                data_sol_str = data_sol.strftime('%d/%m/%Y') if pd.notna(data_sol) else '-'
+                st.write(f"**Data da solicitação:** {data_sol_str}")
+
+            
         elif tipo == "entrega":
-            st.text(f"Fornecedor: {row.get('Fornecedor', '-')}")
+            # NOVO: Quantidade formatada (Item 2)
             st.text(f"Pedido: {row.get('N° do Pedido', '-')}")
-            st.text(f"Qtd entregue: {row.get('Quantidade entregue', 0)}")
+            qtd_ent = row.get('Quantidade entregue', 0)
+            if pd.isna(qtd_ent): qtd_ent = 0
+            un = row.get('Unidade de movimento', '')
+            st.text(f"Qtd entregue: {float(qtd_ent):,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            
             st.markdown(f":green[**Totalmente entregue**]")
             
-        with st.expander("Ver Detalhes"):
-            st.write(f"**Nº da Solicitação:** {row.get('Nº da Solicitação', '-')}")
-            data_sol = row.get('Data da solicitação')
-            data_sol_str = data_sol.strftime('%d/%m/%Y') if pd.notna(data_sol) else '-'
-            st.write(f"**Data da solicitação:** {data_sol_str}")
+            # NOVO: Fornecedor movido para Detalhes (Item 3)
+            with st.expander("Ver Detalhes"):
+                st.write(f"**Nº da Solicitação:** {row.get('Nº da Solicitação', '-')}")
+                st.write(f"**Fornecedor:** {row.get('Fornecedor', '-')}")
+                data_sol = row.get('Data da solicitação')
+                data_sol_str = data_sol.strftime('%d/%m/%Y') if pd.notna(data_sol) else '-'
+                st.write(f"**Data da solicitação:** {data_sol_str}")
 
 # --- CONSTRUÇÃO DO KANBAN ---
 
-# 1. Primeiro criamos uma linha apenas para os TÍTULOS (Fixos)
 head1, head2, head3, head4, head5 = st.columns(5)
 with head1: st.subheader("🟠 Insumos Não Autorizados")
 with head2: st.subheader("🔵 Insumos Autorizados")
@@ -109,7 +152,6 @@ with head3: st.subheader("🟠 Pedidos Não Autorizados")
 with head4: st.subheader("🔵 Pedidos Autorizados")
 with head5: st.subheader("🟢 Entregas")
 
-# 2. Depois criamos uma linha para os CARTÕES (Com barra de rolagem individual)
 ALTURA_COLUNA = 650 
 col1, col2, col3, col4, col5 = st.columns(5)
 
