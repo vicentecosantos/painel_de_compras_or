@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import date, timedelta # NOVO: Para calcular a data de hoje e os 15 dias
 
 # Mantém a tela inteira sem rolagem geral
 st.set_page_config(layout="wide", page_title="Kanban de Compras", page_icon="🏗️")
@@ -27,45 +28,46 @@ obras_disponiveis = df['Obra'].dropna().unique().tolist()
 obras_selecionadas = st.sidebar.multiselect(
     "Filtrar por Obra:",
     options=obras_disponiveis,
-    default=obras_disponiveis
+    default=[] # NOVO: Inicia sem nenhuma obra selecionada
 )
 
-# NOVO: Filtro por Número da Solicitação (Item 5)
 solicitacoes_disponiveis = df['Nº da Solicitação'].dropna().unique().astype(str).tolist()
 solicitacoes_disponiveis.sort()
 solicitacoes_selecionadas = st.sidebar.multiselect(
     "Nº da Solicitação:",
     options=solicitacoes_disponiveis,
-    # Se o usuário não selecionar nada, o padrão é mostrar todas (para não começar com a tela vazia)
     default=[] 
 )
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📅 Período da Solicitação")
 
-min_date_val = df['Data da solicitação'].min()
-max_date_val = df['Data da solicitação'].max()
-
-if pd.isna(min_date_val): min_date_val = pd.to_datetime('today')
-if pd.isna(max_date_val): max_date_val = pd.to_datetime('today')
+# NOVO: Cálculo automático das datas padrão (Hoje e 15 dias atrás)
+hoje = date.today()
+quinze_dias_atras = hoje - timedelta(days=15)
 
 col_dt1, col_dt2 = st.sidebar.columns(2)
 with col_dt1:
-    data_inicio = st.date_input("Data Inicial", value=min_date_val.date(), format="DD/MM/YYYY")
+    data_inicio = st.date_input("Data Inicial", value=quinze_dias_atras, format="DD/MM/YYYY")
 with col_dt2:
-    data_fim = st.date_input("Data Final", value=max_date_val.date(), format="DD/MM/YYYY")
+    data_fim = st.date_input("Data Final", value=hoje, format="DD/MM/YYYY")
 
-# Aplicar os filtros aos dados (com suporte para quando o filtro de solicitação está vazio)
+# APLICAR FILTROS (Com inteligência para filtros vazios)
+# 1. Primeiro filtra o período de datas (que sempre tem um valor)
 df_filtrado = df[
-    (df['Obra'].isin(obras_selecionadas)) & 
     (df['Data da solicitação'].dt.date >= data_inicio) & 
     (df['Data da solicitação'].dt.date <= data_fim)
 ]
+
+# 2. Se houver obras selecionadas, filtra por elas. Se não, mostra todas.
+if obras_selecionadas:
+    df_filtrado = df_filtrado[df_filtrado['Obra'].isin(obras_selecionadas)]
+
+# 3. Se houver solicitações selecionadas, filtra por elas.
 if solicitacoes_selecionadas:
     df_filtrado = df_filtrado[df_filtrado['Nº da Solicitação'].astype(str).isin(solicitacoes_selecionadas)]
 
-
-# --- LÓGICA DE FILTRAGEM ---
+# --- LÓGICA DE FILTRAGEM (Para as colunas) ---
 mask_sem_pedido = df_filtrado['N° do Pedido'].isna()
 insumos_aut = df_filtrado[mask_sem_pedido & (df_filtrado['Situação autorização do item'] == 'Autorizado')]
 insumos_nao_aut = df_filtrado[mask_sem_pedido & (df_filtrado['Situação autorização do item'] != 'Autorizado')]
@@ -75,6 +77,17 @@ pedidos_aut = df_filtrado[mask_com_pedido & (df_filtrado['Situação autorizaç�
 pedidos_nao_aut = df_filtrado[mask_com_pedido & (df_filtrado['Situação autorização do pedido'] != 'Autorizado')]
 
 entregas = df_filtrado[df_filtrado['N° do Pedido'].notna() & (df_filtrado['Situação do pedido'] == 'Totalmente entregue')]
+
+# --- FUNÇÃO DE SEGURANÇA PARA CONVERTER NÚMEROS DO EXCEL ---
+def converter_numero(valor):
+    if pd.isna(valor) or valor == '' or valor == '-':
+        return 0.0
+    if isinstance(valor, str):
+        valor = valor.replace('.', '').replace(',', '.')
+    try:
+        return float(valor)
+    except ValueError:
+        return 0.0
 
 # --- FUNÇÃO PARA DESENHAR OS CARTÕES ---
 def render_card(row, tipo):
@@ -88,8 +101,8 @@ def render_card(row, tipo):
         st.caption(f"Obra: {row.get('Obra', '-')}")
         
         if tipo == "insumo":
-            # NOVO: Qtd formatada para 2 casas decimais e Nº Solicitação movido (Item 1 e 2)
-            qtd_sol = float(row.get('Quantidade solicitada', 0))
+            # Usando a função de segurança 'converter_numero'
+            qtd_sol = converter_numero(row.get('Quantidade solicitada', 0))
             un = row.get('Unidade de movimento', '')
             st.text(f"Qtd: {qtd_sol:,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
             st.text(f"Nº Solicitação: {row.get('Nº da Solicitação', '-')}")
@@ -102,40 +115,35 @@ def render_card(row, tipo):
                 data_sol = row.get('Data da solicitação')
                 data_sol_str = data_sol.strftime('%d/%m/%Y') if pd.notna(data_sol) else '-'
                 st.write(f"**Data da solicitação:** {data_sol_str}")
-
             
         elif tipo == "pedido":
-            # NOVO: Quantidade Pendente e Formatação (Item 4)
-            qtd_pendente = row.get('Saldo', 0)
-            if pd.isna(qtd_pendente): qtd_pendente = 0
+            # Usando a função de segurança 'converter_numero'
+            qtd_pendente = converter_numero(row.get('Saldo', 0))
             un = row.get('Unidade de movimento', '')
-            st.text(f"Qtd pendente: {float(qtd_pendente):,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            st.text(f"Qtd pendente: {qtd_pendente:,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
             
             st.text(f"Pedido: {row.get('N° do Pedido', '-')}")
             
             status = row.get('Situação do pedido', 'Pendente')
             st.markdown(f":orange[**{status}**]")
             
-            # NOVO: Fornecedor movido para Detalhes (Item 3)
             with st.expander("Ver Detalhes"):
                 st.write(f"**Nº da Solicitação:** {row.get('Nº da Solicitação', '-')}")
                 st.write(f"**Fornecedor:** {row.get('Fornecedor', '-')}")
                 data_sol = row.get('Data da solicitação')
                 data_sol_str = data_sol.strftime('%d/%m/%Y') if pd.notna(data_sol) else '-'
                 st.write(f"**Data da solicitação:** {data_sol_str}")
-
             
         elif tipo == "entrega":
-            # NOVO: Quantidade formatada (Item 2)
             st.text(f"Pedido: {row.get('N° do Pedido', '-')}")
-            qtd_ent = row.get('Quantidade entregue', 0)
-            if pd.isna(qtd_ent): qtd_ent = 0
+            
+            # Usando a função de segurança 'converter_numero'
+            qtd_ent = converter_numero(row.get('Quantidade entregue', 0))
             un = row.get('Unidade de movimento', '')
-            st.text(f"Qtd entregue: {float(qtd_ent):,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
+            st.text(f"Qtd entregue: {qtd_ent:,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
             
             st.markdown(f":green[**Totalmente entregue**]")
             
-            # NOVO: Fornecedor movido para Detalhes (Item 3)
             with st.expander("Ver Detalhes"):
                 st.write(f"**Nº da Solicitação:** {row.get('Nº da Solicitação', '-')}")
                 st.write(f"**Fornecedor:** {row.get('Fornecedor', '-')}")
