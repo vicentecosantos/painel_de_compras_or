@@ -10,7 +10,7 @@ col_logo, col_titulo = st.columns([2, 15]) # O [1, 15] controla a proporção de
 
 with col_logo:
     # Ajuste o 'width' (largura) para deixar a logo maior ou menor
-    st.image("Oracon_Logo.png", width=175) 
+    st.image("Oracon_Logo.png", width=140) 
 
 with col_titulo:
     # O st.title sem o emoji
