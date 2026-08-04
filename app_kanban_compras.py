@@ -1,30 +1,35 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, timedelta # NOVO: Para calcular a data de hoje e os 15 dias
+from datetime import date, timedelta 
 
 # Mantém a tela inteira sem rolagem geral
 st.set_page_config(layout="wide", page_title="Painel Oracon", page_icon="Oracon_Logo.png")
 
 # Usamos colunas para deixar a imagem perfeitamente alinhada ao lado do texto
-col_logo, col_titulo = st.columns([2, 15]) # O [1, 15] controla a proporção de espaço
+col_logo, col_titulo = st.columns([2, 15]) 
 
 with col_logo:
-    # Ajuste o 'width' (largura) para deixar a logo maior ou menor
     st.image("Oracon_Logo.png", width=140) 
 
 with col_titulo:
-    # O st.title sem o emoji
     st.title("Painel de Compras Oracon")
 
 st.markdown("Visão de suprimentos para engenheiros com atualização diária.")
 
-# O seu código de carregamento de dados continua a partir daqui
-
 @st.cache_data (ttl=900)
 def load_data():
     df = pd.read_excel("Relatorio_Painel de Compras.xlsx")
-    if 'Data da solicitação' in df.columns:
-        df['Data da solicitação'] = pd.to_datetime(df['Data da solicitação'], dayfirst=True, errors='coerce')
+    
+    # NOVO: Tratamento de todas as datas relevantes
+    colunas_data = [
+        'Data da solicitação', 
+        'Data autorização da solicitação', 
+        'Data do pedido', 
+        'Data autorização do pedido'
+    ]
+    for col in colunas_data:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
     return df
 
 try:
@@ -36,25 +41,7 @@ except FileNotFoundError:
 # --- 1. FILTROS NA BARRA LATERAL ---
 st.sidebar.header("🔍 Filtros do Painel")
 
-obras_disponiveis = df['Obra'].dropna().unique().tolist()
-obras_selecionadas = st.sidebar.multiselect(
-    "Filtrar por Obra:",
-    options=obras_disponiveis,
-    default=[] # NOVO: Inicia sem nenhuma obra selecionada
-)
-
-solicitacoes_disponiveis = df['Nº da Solicitação'].dropna().unique().astype(str).tolist()
-solicitacoes_disponiveis.sort()
-solicitacoes_selecionadas = st.sidebar.multiselect(
-    "Nº da Solicitação:",
-    options=solicitacoes_disponiveis,
-    default=[] 
-)
-
-st.sidebar.markdown("---")
 st.sidebar.subheader("📅 Período da Solicitação")
-
-# NOVO: Cálculo automático das datas padrão (Hoje e 15 dias atrás)
 hoje = date.today()
 quinze_dias_atras = hoje - timedelta(days=15)
 
@@ -64,20 +51,62 @@ with col_dt1:
 with col_dt2:
     data_fim = st.date_input("Data Final", value=hoje, format="DD/MM/YYYY")
 
-# APLICAR FILTROS (Com inteligência para filtros vazios)
-# 1. Primeiro filtra o período de datas (que sempre tem um valor)
-df_filtrado = df[
+st.sidebar.markdown("---")
+
+# Filtra a base primária por data
+df_base = df[
     (df['Data da solicitação'].dt.date >= data_inicio) & 
     (df['Data da solicitação'].dt.date <= data_fim)
 ]
 
-# 2. Se houver obras selecionadas, filtra por elas. Se não, mostra todas.
-if obras_selecionadas:
-    df_filtrado = df_filtrado[df_filtrado['Obra'].isin(obras_selecionadas)]
+obras_disponiveis = df_base['Obra'].dropna().unique().tolist()
+obras_selecionadas = st.sidebar.multiselect(
+    "Filtrar por Obra:",
+    options=obras_disponiveis,
+    default=[] 
+)
 
-# 3. Se houver solicitações selecionadas, filtra por elas.
+if obras_selecionadas:
+    df_base = df_base[df_base['Obra'].isin(obras_selecionadas)]
+
+# --- NOVO: FILTROS BIDIRECIONAIS (Solicitação <-> Pedido) ---
+pedidos_ja_selecionados = st.session_state.get('key_pedidos', [])
+
+if pedidos_ja_selecionados:
+    df_sol_options = df_base[df_base['N° do Pedido'].astype(str).isin(pedidos_ja_selecionados)]
+else:
+    df_sol_options = df_base
+
+solicitacoes_disponiveis = df_sol_options['Nº da Solicitação'].dropna().unique().astype(str).tolist()
+solicitacoes_disponiveis.sort()
+
+solicitacoes_selecionadas = st.sidebar.multiselect(
+    "Nº da Solicitação:",
+    options=solicitacoes_disponiveis,
+    key='key_solicitacoes'
+)
+
+if solicitacoes_selecionadas:
+    df_ped_options = df_base[df_base['Nº da Solicitação'].astype(str).isin(solicitacoes_selecionadas)]
+else:
+    df_ped_options = df_base
+
+pedidos_disponiveis = df_ped_options['N° do Pedido'].dropna().unique().astype(str).tolist()
+pedidos_disponiveis.sort()
+
+pedidos_selecionados = st.sidebar.multiselect(
+    "Nº do Pedido:",
+    options=pedidos_disponiveis,
+    key='key_pedidos'
+)
+
+# Filtro final aplicado aos dados exibidos no quadro
+df_filtrado = df_base.copy()
 if solicitacoes_selecionadas:
     df_filtrado = df_filtrado[df_filtrado['Nº da Solicitação'].astype(str).isin(solicitacoes_selecionadas)]
+if pedidos_selecionados:
+    df_filtrado = df_filtrado[df_filtrado['N° do Pedido'].astype(str).isin(pedidos_selecionados)]
+
 
 # --- LÓGICA DE FILTRAGEM (Para as colunas) ---
 mask_sem_pedido = df_filtrado['N° do Pedido'].isna()
@@ -90,7 +119,7 @@ pedidos_nao_aut = df_filtrado[mask_com_pedido & (df_filtrado['Situação autoriz
 
 entregas = df_filtrado[df_filtrado['N° do Pedido'].notna() & (df_filtrado['Situação do pedido'] == 'Totalmente entregue')]
 
-# --- FUNÇÃO DE SEGURANÇA PARA CONVERTER NÚMEROS DO EXCEL ---
+# --- FUNÇÕES DE APOIO ---
 def converter_numero(valor):
     if pd.isna(valor) or valor == '' or valor == '-':
         return 0.0
@@ -101,8 +130,13 @@ def converter_numero(valor):
     except ValueError:
         return 0.0
 
+def formatar_data(data):
+    if pd.notna(data):
+        return data.strftime('%d/%m/%Y')
+    return '-'
+
 # --- FUNÇÃO PARA DESENHAR OS CARTÕES ---
-def render_card(row, tipo):
+def render_card(row, coluna):
     with st.container(border=True):
         st.markdown(f"**{row.get('Descrição do insumo', 'Sem descrição')}**")
         
@@ -112,8 +146,7 @@ def render_card(row, tipo):
         st.caption(f"Detalhe: {detalhe}")
         st.caption(f"Obra: {row.get('Obra', '-')}")
         
-        if tipo == "insumo":
-            # Usando a função de segurança 'converter_numero'
+        if coluna in ["insumo_nao_aut", "insumo_aut"]:
             qtd_sol = converter_numero(row.get('Quantidade solicitada', 0))
             un = row.get('Unidade de movimento', '')
             st.text(f"Qtd: {qtd_sol:,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
@@ -124,12 +157,12 @@ def render_card(row, tipo):
             st.markdown(f":{cor}[**{status}**]")
             
             with st.expander("Ver Detalhes"):
-                data_sol = row.get('Data da solicitação')
-                data_sol_str = data_sol.strftime('%d/%m/%Y') if pd.notna(data_sol) else '-'
-                st.write(f"**Data da solicitação:** {data_sol_str}")
+                st.write(f"**Data da solicitação:** {formatar_data(row.get('Data da solicitação'))}")
+                # Exibir autorização apenas se for Insumo Autorizado
+                if coluna == "insumo_aut":
+                    st.write(f"**Data aut. solicitação:** {formatar_data(row.get('Data autorização da solicitação'))}")
             
-        elif tipo == "pedido":
-            # Usando a função de segurança 'converter_numero'
+        elif coluna in ["pedido_nao_aut", "pedido_aut"]:
             qtd_pendente = converter_numero(row.get('Saldo', 0))
             un = row.get('Unidade de movimento', '')
             st.text(f"Qtd pendente: {qtd_pendente:,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
@@ -142,14 +175,17 @@ def render_card(row, tipo):
             with st.expander("Ver Detalhes"):
                 st.write(f"**Nº da Solicitação:** {row.get('Nº da Solicitação', '-')}")
                 st.write(f"**Fornecedor:** {row.get('Fornecedor', '-')}")
-                data_sol = row.get('Data da solicitação')
-                data_sol_str = data_sol.strftime('%d/%m/%Y') if pd.notna(data_sol) else '-'
-                st.write(f"**Data da solicitação:** {data_sol_str}")
+                st.write(f"**Data da solicitação:** {formatar_data(row.get('Data da solicitação'))}")
+                st.write(f"**Data aut. solicitação:** {formatar_data(row.get('Data autorização da solicitação'))}")
+                st.write(f"**Data do pedido:** {formatar_data(row.get('Data do pedido'))}")
+                
+                # Exibir autorização apenas se for Pedido Autorizado
+                if coluna == "pedido_aut":
+                    st.write(f"**Data aut. pedido:** {formatar_data(row.get('Data autorização do pedido'))}")
             
-        elif tipo == "entrega":
+        elif coluna == "entrega":
             st.text(f"Pedido: {row.get('N° do Pedido', '-')}")
             
-            # Usando a função de segurança 'converter_numero'
             qtd_ent = converter_numero(row.get('Quantidade entregue', 0))
             un = row.get('Unidade de movimento', '')
             st.text(f"Qtd entregue: {qtd_ent:,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
@@ -159,9 +195,11 @@ def render_card(row, tipo):
             with st.expander("Ver Detalhes"):
                 st.write(f"**Nº da Solicitação:** {row.get('Nº da Solicitação', '-')}")
                 st.write(f"**Fornecedor:** {row.get('Fornecedor', '-')}")
-                data_sol = row.get('Data da solicitação')
-                data_sol_str = data_sol.strftime('%d/%m/%Y') if pd.notna(data_sol) else '-'
-                st.write(f"**Data da solicitação:** {data_sol_str}")
+                st.write(f"**Data da solicitação:** {formatar_data(row.get('Data da solicitação'))}")
+                st.write(f"**Data aut. solicitação:** {formatar_data(row.get('Data autorização da solicitação'))}")
+                st.write(f"**Data do pedido:** {formatar_data(row.get('Data do pedido'))}")
+                st.write(f"**Data aut. pedido:** {formatar_data(row.get('Data autorização do pedido'))}")
+
 
 # --- CONSTRUÇÃO DO KANBAN ---
 
@@ -177,19 +215,19 @@ col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     with st.container(height=ALTURA_COLUNA, border=False):
-        for _, row in insumos_nao_aut.iterrows(): render_card(row, "insumo")
+        for _, row in insumos_nao_aut.iterrows(): render_card(row, "insumo_nao_aut")
 
 with col2:
     with st.container(height=ALTURA_COLUNA, border=False):
-        for _, row in insumos_aut.iterrows(): render_card(row, "insumo")
+        for _, row in insumos_aut.iterrows(): render_card(row, "insumo_aut")
 
 with col3:
     with st.container(height=ALTURA_COLUNA, border=False):
-        for _, row in pedidos_nao_aut.iterrows(): render_card(row, "pedido")
+        for _, row in pedidos_nao_aut.iterrows(): render_card(row, "pedido_nao_aut")
 
 with col4:
     with st.container(height=ALTURA_COLUNA, border=False):
-        for _, row in pedidos_aut.iterrows(): render_card(row, "pedido")
+        for _, row in pedidos_aut.iterrows(): render_card(row, "pedido_aut")
 
 with col5:
     with st.container(height=ALTURA_COLUNA, border=False):
