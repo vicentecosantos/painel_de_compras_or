@@ -3,12 +3,24 @@ import pandas as pd
 from datetime import date, timedelta # NOVO: Para calcular a data de hoje e os 15 dias
 
 # Mantém a tela inteira sem rolagem geral
-st.set_page_config(layout="wide", page_title="Kanban de Compras", page_icon="🏗️")
+st.set_page_config(layout="wide", page_title="Painel Oracon", page_icon="Oracon_Logo.png")
 
-st.title("🏗️ Painel de Compras Kanban")
-st.markdown("Visão atualizável para engenheiros e suprimentos.")
+# Usamos colunas para deixar a imagem perfeitamente alinhada ao lado do texto
+col_logo, col_titulo = st.columns([1, 15]) # O [1, 15] controla a proporção de espaço
 
-@st.cache_data
+with col_logo:
+    # Ajuste o 'width' (largura) para deixar a logo maior ou menor
+    st.image("Oracon_Logo.png", width=50) 
+
+with col_titulo:
+    # O st.title sem o emoji
+    st.title("Painel de Compras Oracon")
+
+st.markdown("Visão de suprimentos para engenheiros com atualização diária.")
+
+# O seu código de carregamento de dados continua a partir daqui
+
+@st.cache_data (ttl=900)
 def load_data():
     df = pd.read_excel("Relatorio_Painel de Compras.xlsx")
     if 'Data da solicitação' in df.columns:
