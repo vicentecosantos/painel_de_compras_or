@@ -88,14 +88,14 @@ with st.sidebar.form(key='filtro_form'):
     
     # BOTÃO NO TOPO
     submit_button = st.form_submit_button(
-        label='🚀 APLICAR FILTROS', 
+        label='APLICAR FILTROS', 
         type='primary', 
         use_container_width=True
     )
     
     st.markdown("---")
     
-    st.subheader("🏢 Filtro de Obra")
+    st.subheader("🏢 Obra / Centro de Custo")
     obras_disponiveis = df['Obra'].dropna().unique().tolist()
     obras_disponiveis.sort()
     obras_selecionadas = st.multiselect("Filtrar por Obra:", options=obras_disponiveis, default=[])
