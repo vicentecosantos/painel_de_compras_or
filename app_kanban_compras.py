@@ -1,35 +1,23 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, timedelta 
+from datetime import date, timedelta
 
 # Mantém a tela inteira sem rolagem geral
 st.set_page_config(layout="wide", page_title="Painel Oracon", page_icon="Oracon_Logo.png")
 
 # Usamos colunas para deixar a imagem perfeitamente alinhada ao lado do texto
-col_logo, col_titulo = st.columns([2, 15]) 
-
+col_logo, col_titulo = st.columns([2, 15])
 with col_logo:
-    st.image("Oracon_Logo.png", width=140) 
-
+    st.image("Oracon_Logo.png", width=140)
 with col_titulo:
     st.title("Painel de Compras Oracon")
+    st.markdown("Visão de suprimentos para engenheiros com atualização diária.")
 
-st.markdown("Visão de suprimentos para engenheiros com atualização diária.")
-
-@st.cache_data (ttl=900)
+@st.cache_data(ttl=900)
 def load_data():
     df = pd.read_excel("Relatorio_Painel de Compras.xlsx")
-    
-    # NOVO: Tratamento de todas as datas relevantes
-    colunas_data = [
-        'Data da solicitação', 
-        'Data autorização da solicitação', 
-        'Data do pedido', 
-        'Data autorização do pedido'
-    ]
-    for col in colunas_data:
-        if col in df.columns:
-            df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
+    if 'Data da solicitação' in df.columns:
+        df['Data da solicitação'] = pd.to_datetime(df['Data da solicitação'], dayfirst=True, errors='coerce')
     return df
 
 try:
@@ -40,14 +28,15 @@ except FileNotFoundError:
 
 # --- 1. FILTROS NA BARRA LATERAL ---
 st.sidebar.header("🔍 Filtros do Painel")
-
 st.sidebar.subheader("📅 Período da Solicitação")
+
 hoje = date.today()
-quinze_dias_atras = hoje - timedelta(days=15)
+# ALTERAÇÃO: De 15 dias para 5 dias atrás (D-5) para otimizar o tempo de carregamento
+cinco_dias_atras = hoje - timedelta(days=5)
 
 col_dt1, col_dt2 = st.sidebar.columns(2)
 with col_dt1:
-    data_inicio = st.date_input("Data Inicial", value=quinze_dias_atras, format="DD/MM/YYYY")
+    data_inicio = st.date_input("Data Inicial", value=cinco_dias_atras, format="DD/MM/YYYY")
 with col_dt2:
     data_fim = st.date_input("Data Final", value=hoje, format="DD/MM/YYYY")
 
@@ -63,15 +52,14 @@ obras_disponiveis = df_base['Obra'].dropna().unique().tolist()
 obras_selecionadas = st.sidebar.multiselect(
     "Filtrar por Obra:",
     options=obras_disponiveis,
-    default=[] 
+    default=[]
 )
 
 if obras_selecionadas:
     df_base = df_base[df_base['Obra'].isin(obras_selecionadas)]
 
-# --- NOVO: FILTROS BIDIRECIONAIS (Solicitação <-> Pedido) ---
+# --- FILTROS BIDIRECIONAIS (Solicitação <-> Pedido) ---
 pedidos_ja_selecionados = st.session_state.get('key_pedidos', [])
-
 if pedidos_ja_selecionados:
     df_sol_options = df_base[df_base['N° do Pedido'].astype(str).isin(pedidos_ja_selecionados)]
 else:
@@ -79,7 +67,6 @@ else:
 
 solicitacoes_disponiveis = df_sol_options['Nº da Solicitação'].dropna().unique().astype(str).tolist()
 solicitacoes_disponiveis.sort()
-
 solicitacoes_selecionadas = st.sidebar.multiselect(
     "Nº da Solicitação:",
     options=solicitacoes_disponiveis,
@@ -93,19 +80,43 @@ else:
 
 pedidos_disponiveis = df_ped_options['N° do Pedido'].dropna().unique().astype(str).tolist()
 pedidos_disponiveis.sort()
-
 pedidos_selecionados = st.sidebar.multiselect(
     "Nº do Pedido:",
     options=pedidos_disponiveis,
     key='key_pedidos'
 )
 
-# Filtro final aplicado aos dados exibidos no quadro
+# Filtro final aplicado aos dados após opções bidirecionais
 df_filtrado = df_base.copy()
 if solicitacoes_selecionadas:
     df_filtrado = df_filtrado[df_filtrado['Nº da Solicitação'].astype(str).isin(solicitacoes_selecionadas)]
 if pedidos_selecionados:
     df_filtrado = df_filtrado[df_filtrado['N° do Pedido'].astype(str).isin(pedidos_selecionados)]
+
+# --- NOVOS FILTROS CASCATA (Insumo -> Fornecedor) ---
+# 1. Filtro de Insumo
+insumos_disponiveis = df_filtrado['Descrição do insumo'].dropna().unique().astype(str).tolist()
+insumos_disponiveis.sort()
+insumos_selecionados = st.sidebar.multiselect(
+    "Filtrar por Insumo:",
+    options=insumos_disponiveis,
+    default=[]
+)
+
+if insumos_selecionados:
+    df_filtrado = df_filtrado[df_filtrado['Descrição do insumo'].astype(str).isin(insumos_selecionados)]
+
+# 2. Filtro de Fornecedor
+fornecedores_disponiveis = df_filtrado['Fornecedor'].dropna().unique().astype(str).tolist()
+fornecedores_disponiveis.sort()
+fornecedores_selecionados = st.sidebar.multiselect(
+    "Filtrar por Fornecedor:",
+    options=fornecedores_disponiveis,
+    default=[]
+)
+
+if fornecedores_selecionados:
+    df_filtrado = df_filtrado[df_filtrado['Fornecedor'].astype(str).isin(fornecedores_selecionados)]
 
 
 # --- LÓGICA DE FILTRAGEM (Para as colunas) ---
@@ -118,6 +129,7 @@ pedidos_aut = df_filtrado[mask_com_pedido & (df_filtrado['Situação autorizaç�
 pedidos_nao_aut = df_filtrado[mask_com_pedido & (df_filtrado['Situação autorização do pedido'] != 'Autorizado')]
 
 entregas = df_filtrado[df_filtrado['N° do Pedido'].notna() & (df_filtrado['Situação do pedido'] == 'Totalmente entregue')]
+
 
 # --- FUNÇÕES DE APOIO ---
 def converter_numero(valor):
@@ -139,96 +151,95 @@ def formatar_data(data):
 def render_card(row, coluna):
     with st.container(border=True):
         st.markdown(f"**{row.get('Descrição do insumo', 'Sem descrição')}**")
-        
+
         detalhe = row.get('Detalhe', '-')
-        if pd.isna(detalhe): 
+        if pd.isna(detalhe):
             detalhe = '-'
         st.caption(f"Detalhe: {detalhe}")
         st.caption(f"Obra: {row.get('Obra', '-')}")
-        
-        if coluna in ["insumo_nao_aut", "insumo_aut"]:
+
+        if "insumo" in coluna:
             qtd_sol = converter_numero(row.get('Quantidade solicitada', 0))
             un = row.get('Unidade de movimento', '')
             st.text(f"Qtd: {qtd_sol:,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
             st.text(f"Nº Solicitação: {row.get('Nº da Solicitação', '-')}")
-            
+
             status = row.get('Situação da solicitação', 'Pendente')
             cor = "blue" if status == "Parcialmente atendida" else "orange"
-            st.markdown(f":{cor}[**{status}**]")
-            
+            st.markdown(f":{cor}[ {status} ]")
+
             with st.expander("Ver Detalhes"):
-                st.write(f"**Data da solicitação:** {formatar_data(row.get('Data da solicitação'))}")
-                # Exibir autorização apenas se for Insumo Autorizado
-                if coluna == "insumo_aut":
-                    st.write(f"**Data aut. solicitação:** {formatar_data(row.get('Data autorização da solicitação'))}")
-            
-        elif coluna in ["pedido_nao_aut", "pedido_aut"]:
+                st.write(f"Data da solicitação: {formatar_data(row.get('Data da solicitação'))}")
+                if 'Data autorização da solicitação' in row and pd.notna(row['Data autorização da solicitação']) and coluna != "insumo_nao_aut":
+                    st.write(f"Data Aut. Solicit.: {formatar_data(row['Data autorização da solicitação'])}")
+
+        elif "pedido" in coluna:
             qtd_pendente = converter_numero(row.get('Saldo', 0))
             un = row.get('Unidade de movimento', '')
             st.text(f"Qtd pendente: {qtd_pendente:,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-            
             st.text(f"Pedido: {row.get('N° do Pedido', '-')}")
-            
+
             status = row.get('Situação do pedido', 'Pendente')
-            st.markdown(f":orange[**{status}**]")
-            
+            st.markdown(f":orange[ {status} ]")
+
             with st.expander("Ver Detalhes"):
-                st.write(f"**Nº da Solicitação:** {row.get('Nº da Solicitação', '-')}")
-                st.write(f"**Fornecedor:** {row.get('Fornecedor', '-')}")
-                st.write(f"**Data da solicitação:** {formatar_data(row.get('Data da solicitação'))}")
-                st.write(f"**Data aut. solicitação:** {formatar_data(row.get('Data autorização da solicitação'))}")
-                st.write(f"**Data do pedido:** {formatar_data(row.get('Data do pedido'))}")
-                
-                # Exibir autorização apenas se for Pedido Autorizado
+                st.write(f"Nº da Solicitação: {row.get('Nº da Solicitação', '-')}")
+                st.write(f"Fornecedor: {row.get('Fornecedor', '-')}")
+                st.write(f"Data da solicitação: {formatar_data(row.get('Data da solicitação'))}")
+                st.write(f"Data do pedido: {formatar_data(row.get('Data do pedido'))}")
                 if coluna == "pedido_aut":
-                    st.write(f"**Data aut. pedido:** {formatar_data(row.get('Data autorização do pedido'))}")
-            
-        elif coluna == "entrega":
+                    st.write(f"Data Aut. Pedido: {formatar_data(row.get('Data autorização do pedido'))}")
+
+        elif "entrega" in coluna:
             st.text(f"Pedido: {row.get('N° do Pedido', '-')}")
-            
             qtd_ent = converter_numero(row.get('Quantidade entregue', 0))
             un = row.get('Unidade de movimento', '')
             st.text(f"Qtd entregue: {qtd_ent:,.2f} {un}".replace(',', 'X').replace('.', ',').replace('X', '.'))
-            
-            st.markdown(f":green[**Totalmente entregue**]")
-            
-            with st.expander("Ver Detalhes"):
-                st.write(f"**Nº da Solicitação:** {row.get('Nº da Solicitação', '-')}")
-                st.write(f"**Fornecedor:** {row.get('Fornecedor', '-')}")
-                st.write(f"**Data da solicitação:** {formatar_data(row.get('Data da solicitação'))}")
-                st.write(f"**Data aut. solicitação:** {formatar_data(row.get('Data autorização da solicitação'))}")
-                st.write(f"**Data do pedido:** {formatar_data(row.get('Data do pedido'))}")
-                st.write(f"**Data aut. pedido:** {formatar_data(row.get('Data autorização do pedido'))}")
 
+            st.markdown(":green[ Totalmente entregue ]")
+
+            with st.expander("Ver Detalhes"):
+                st.write(f"Nº da Solicitação: {row.get('Nº da Solicitação', '-')}")
+                st.write(f"Fornecedor: {row.get('Fornecedor', '-')}")
+                st.write(f"Data da solicitação: {formatar_data(row.get('Data da solicitação'))}")
 
 # --- CONSTRUÇÃO DO KANBAN ---
-
 head1, head2, head3, head4, head5 = st.columns(5)
-with head1: st.subheader("🟠 Insumos Não Autorizados")
-with head2: st.subheader("🔵 Insumos Autorizados")
-with head3: st.subheader("🟠 Pedidos Não Autorizados")
-with head4: st.subheader("🔵 Pedidos Autorizados")
-with head5: st.subheader("🟢 Entregas")
+with head1:
+    st.subheader("🟠 Insumos Não Autorizados")
+with head2:
+    st.subheader("🔵 Insumos Autorizados")
+with head3:
+    st.subheader("🟠 Pedidos Não Autorizados")
+with head4:
+    st.subheader("🔵 Pedidos Autorizados")
+with head5:
+    st.subheader("🟢 Entregas")
 
-ALTURA_COLUNA = 650 
+ALTURA_COLUNA = 650
 col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
     with st.container(height=ALTURA_COLUNA, border=False):
-        for _, row in insumos_nao_aut.iterrows(): render_card(row, "insumo_nao_aut")
+        for _, row in insumos_nao_aut.iterrows():
+            render_card(row, "insumo_nao_aut")
 
 with col2:
     with st.container(height=ALTURA_COLUNA, border=False):
-        for _, row in insumos_aut.iterrows(): render_card(row, "insumo_aut")
+        for _, row in insumos_aut.iterrows():
+            render_card(row, "insumo_aut")
 
 with col3:
     with st.container(height=ALTURA_COLUNA, border=False):
-        for _, row in pedidos_nao_aut.iterrows(): render_card(row, "pedido_nao_aut")
+        for _, row in pedidos_nao_aut.iterrows():
+            render_card(row, "pedido_nao_aut")
 
 with col4:
     with st.container(height=ALTURA_COLUNA, border=False):
-        for _, row in pedidos_aut.iterrows(): render_card(row, "pedido_aut")
+        for _, row in pedidos_aut.iterrows():
+            render_card(row, "pedido_aut")
 
 with col5:
     with st.container(height=ALTURA_COLUNA, border=False):
-        for _, row in entregas.iterrows(): render_card(row, "entrega")
+        for _, row in entregas.iterrows():
+            render_card(row, "entrega")
