@@ -27,8 +27,8 @@ st.markdown("""
 
     /* 4. Torna as linhas divisórias mais sutis e compactas */
     [data-testid="stSidebar"] hr {
-        margin-top: 0.5rem !important;
-        margin-bottom: 0.5rem !important;
+        margin-top: 0.8rem !important;
+        margin-bottom: 0.8rem !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -48,6 +48,7 @@ loading_placeholder = st.empty()
 def load_data():
     df = pd.read_excel("Relatorio_Painel de Compras.xlsx")
     
+    # 1. Converte colunas de datas para formato datetime
     colunas_datas = [
         'Data da solicitação', 
         'Data autorização da solicitação', 
@@ -59,8 +60,15 @@ def load_data():
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
             
+    # 2. LIMPEZA DE DADOS: Remove o código numérico do nome da Obra
     if 'Obra' in df.columns:
         df['Obra'] = df['Obra'].apply(
+            lambda x: x.split(' - ', 1)[1].strip() if isinstance(x, str) and ' - ' in x else x
+        )
+        
+    # 3. LIMPEZA DE DADOS (NOVO): Remove o código numérico do nome do Fornecedor
+    if 'Fornecedor' in df.columns:
+        df['Fornecedor'] = df['Fornecedor'].apply(
             lambda x: x.split(' - ', 1)[1].strip() if isinstance(x, str) and ' - ' in x else x
         )
             
@@ -78,9 +86,7 @@ st.sidebar.header("🔍 Filtros do Painel")
 
 with st.sidebar.form(key='filtro_form'):
     
-    # -------------------------------------------------------------
-    # BOTÃO NO TOPO: Posicionado logo no início do formulário
-    # -------------------------------------------------------------
+    # BOTÃO NO TOPO
     submit_button = st.form_submit_button(
         label='🚀 APLICAR FILTROS', 
         type='primary', 
@@ -98,7 +104,7 @@ with st.sidebar.form(key='filtro_form'):
     
     st.subheader("📅 Período da Solicitação")
     hoje = date.today()
-    data_inicial_padrao = hoje - timedelta(days=30) 
+    data_inicial_padrao = hoje - timedelta(days=7) 
     
     col_dt1, col_dt2 = st.columns(2)
     with col_dt1:
@@ -107,8 +113,7 @@ with st.sidebar.form(key='filtro_form'):
         data_fim = st.date_input("Data Final", value=hoje, format="DD/MM/YYYY")
         
     st.markdown("---")
-    st.markdown("<br>", unsafe_allow_html=True) # <-- Injeta um espaço em branco extra
-
+    
     solicitacoes_disponiveis = df['Nº da Solicitação'].dropna().unique().astype(str).tolist()
     solicitacoes_disponiveis.sort()
     solicitacoes_selecionadas = st.multiselect("Nº da Solicitação:", options=solicitacoes_disponiveis, default=[])
@@ -149,8 +154,8 @@ if solicitacoes_selecionadas:
     df_filtrado = df_filtrado[df_filtrado['Nº da Solicitação'].astype(str).isin(solicitacoes_selecionadas)]
 time.sleep(0.1)
 
-# Passo 3: Pedidos e Fornecedores (75%)
-progress_bar.progress(75, text="Ajustando pedidos e fornecedores...")
+# Passo 3: Pedidos, Insumos e Fornecedores (75%)
+progress_bar.progress(75, text="Ajustando pedidos, insumos e fornecedores...")
 if pedidos_selecionados:
     df_filtrado = df_filtrado[df_filtrado['N° do Pedido'].astype(str).isin(pedidos_selecionados)]
 if insumos_selecionados:
@@ -160,7 +165,7 @@ if fornecedores_selecionados:
 time.sleep(0.1)
 
 # Passo 4: Finalização (100%)
-progress_bar.progress(100, text="Montando os cartões do Kanban...")
+progress_bar.progress(100, text="Atualizando informações do painel...")
 time.sleep(0.3)
 
 # Apaga a barra da tela
