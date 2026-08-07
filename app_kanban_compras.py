@@ -17,7 +17,7 @@ with col_titulo:
 def load_data():
     df = pd.read_excel("Relatorio_Painel de Compras.xlsx")
     
-    # Lista de todas as colunas de datas que precisam ser convertidas
+    # 1. Converte colunas de datas para formato de tempo
     colunas_datas = [
         'Data da solicitação', 
         'Data autorização da solicitação', 
@@ -29,6 +29,13 @@ def load_data():
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
             
+    # 2. LIMPEZA DE DADOS (NOVO): Remove o código do centro de custo do nome da obra
+    # Se a célula for um texto e contiver " - ", ele corta a string e pega apenas a 2ª parte (índice 1).
+    if 'Obra' in df.columns:
+        df['Obra'] = df['Obra'].apply(
+            lambda x: x.split(' - ', 1)[1].strip() if isinstance(x, str) and ' - ' in x else x
+        )
+            
     return df
 
 try:
@@ -37,38 +44,49 @@ except FileNotFoundError:
     st.error("Arquivo 'Relatorio_Painel de Compras.xlsx' não encontrado. Verifique se ele está na mesma pasta.")
     st.stop()
 
+
 # --- 1. FILTROS NA BARRA LATERAL ---
-# CORREÇÃO: Aspas recolocadas para evitar o SyntaxError
 st.sidebar.header("🔍 Filtros do Painel")
-st.sidebar.subheader("📅 Período da Solicitação")
 
-hoje = date.today()
-# Filtro de 5 dias atrás (D-5)
-cinco_dias_atras = hoje - timedelta(days=5)
-
-col_dt1, col_dt2 = st.sidebar.columns(2)
-with col_dt1:
-    data_inicio = st.date_input("Data Inicial", value=cinco_dias_atras, format="DD/MM/YYYY")
-with col_dt2:
-    data_fim = st.date_input("Data Final", value=hoje, format="DD/MM/YYYY")
-
-st.sidebar.markdown("---")
-
-# Filtra a base primária por data
-df_base = df[
-    (df['Data da solicitação'].dt.date >= data_inicio) & 
-    (df['Data da solicitação'].dt.date <= data_fim)
-]
-
-obras_disponiveis = df_base['Obra'].dropna().unique().tolist()
+# --- NOVO: Filtro de Obra no TOPO ---
+st.sidebar.subheader("🏢 Filtro de Obra")
+# Lemos as obras direto da base "mãe" (df) ANTES de aplicar datas, para exibir sempre todas as obras
+obras_disponiveis = df['Obra'].dropna().unique().tolist()
+obras_disponiveis.sort()
 obras_selecionadas = st.sidebar.multiselect(
     "Filtrar por Obra:",
     options=obras_disponiveis,
     default=[]
 )
 
+st.sidebar.markdown("---")
+
+# --- Filtro de Datas (Agora em segundo lugar) ---
+st.sidebar.subheader("📅 Período da Solicitação")
+hoje = date.today()
+# Mantendo a janela de 15 dias como padrão inicial
+quinze_dias_atras = hoje - timedelta(days=15)
+
+col_dt1, col_dt2 = st.sidebar.columns(2)
+with col_dt1:
+    data_inicio = st.date_input("Data Inicial", value=quinze_dias_atras, format="DD/MM/YYYY")
+with col_dt2:
+    data_fim = st.date_input("Data Final", value=hoje, format="DD/MM/YYYY")
+
+st.sidebar.markdown("---")
+
+
+# --- APLICAÇÃO DOS FILTROS PRINCIPAIS NA BASE ---
+# 1. Aplica o corte de datas
+df_base = df[
+    (df['Data da solicitação'].dt.date >= data_inicio) & 
+    (df['Data da solicitação'].dt.date <= data_fim)
+]
+
+# 2. Aplica o corte de obras (se alguma foi selecionada)
 if obras_selecionadas:
     df_base = df_base[df_base['Obra'].isin(obras_selecionadas)]
+
 
 # --- FILTROS BIDIRECIONAIS (Solicitação <-> Pedido) ---
 pedidos_ja_selecionados = st.session_state.get('key_pedidos', [])
@@ -98,14 +116,15 @@ pedidos_selecionados = st.sidebar.multiselect(
     key='key_pedidos'
 )
 
-# Filtro final aplicado aos dados após opções bidirecionais
+# Filtro intermediário após opções bidirecionais
 df_filtrado = df_base.copy()
 if solicitacoes_selecionadas:
     df_filtrado = df_filtrado[df_filtrado['Nº da Solicitação'].astype(str).isin(solicitacoes_selecionadas)]
 if pedidos_selecionados:
     df_filtrado = df_filtrado[df_filtrado['N° do Pedido'].astype(str).isin(pedidos_selecionados)]
 
-# --- NOVOS FILTROS CASCATA (Insumo -> Fornecedor) ---
+
+# --- FILTROS CASCATA (Insumo -> Fornecedor) ---
 # 1. Filtro de Insumo
 insumos_disponiveis = df_filtrado['Descrição do insumo'].dropna().unique().astype(str).tolist()
 insumos_disponiveis.sort()
@@ -131,7 +150,7 @@ if fornecedores_selecionados:
     df_filtrado = df_filtrado[df_filtrado['Fornecedor'].astype(str).isin(fornecedores_selecionados)]
 
 
-# --- LÓGICA DE FILTRAGEM (Para as colunas) ---
+# --- LÓGICA DE FILTRAGEM PARA AS 5 COLUNAS ---
 mask_sem_pedido = df_filtrado['N° do Pedido'].isna()
 insumos_aut = df_filtrado[mask_sem_pedido & (df_filtrado['Situação autorização do item'] == 'Autorizado')]
 insumos_nao_aut = df_filtrado[mask_sem_pedido & (df_filtrado['Situação autorização do item'] != 'Autorizado')]
@@ -159,6 +178,7 @@ def formatar_data(data):
         return data.strftime('%d/%m/%Y')
     return '-'
 
+
 # --- FUNÇÃO PARA DESENHAR OS CARTÕES ---
 def render_card(row, coluna):
     with st.container(border=True):
@@ -168,6 +188,8 @@ def render_card(row, coluna):
         if pd.isna(detalhe):
             detalhe = '-'
         st.caption(f"Detalhe: {detalhe}")
+        
+        # A Obra aqui já vem "limpa" graças ao nosso lambda no inicio do código!
         st.caption(f"Obra: {row.get('Obra', '-')}")
 
         if "insumo" in coluna:
