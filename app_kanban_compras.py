@@ -107,7 +107,8 @@ with st.sidebar.form(key='filtro_form'):
         data_fim = st.date_input("Data Final", value=hoje, format="DD/MM/YYYY")
         
     st.markdown("---")
-    
+    st.markdown("<br>", unsafe_allow_html=True) # <-- Injeta um espaço em branco extra
+
     solicitacoes_disponiveis = df['Nº da Solicitação'].dropna().unique().astype(str).tolist()
     solicitacoes_disponiveis.sort()
     solicitacoes_selecionadas = st.multiselect("Nº da Solicitação:", options=solicitacoes_disponiveis, default=[])
