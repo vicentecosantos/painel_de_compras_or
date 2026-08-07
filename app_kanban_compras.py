@@ -64,12 +64,12 @@ st.sidebar.markdown("---")
 # --- Filtro de Datas (Agora em segundo lugar) ---
 st.sidebar.subheader("📅 Período da Solicitação")
 hoje = date.today()
-# Mantendo a janela de 15 dias como padrão inicial
-quinze_dias_atras = hoje - timedelta(days=15)
+# 1. Altera o nome da variável e o timedelta escolhido:
+data_inicial_padrao = hoje - timedelta(days=7)
 
 col_dt1, col_dt2 = st.sidebar.columns(2)
 with col_dt1:
-    data_inicio = st.date_input("Data Inicial", value=quinze_dias_atras, format="DD/MM/YYYY")
+    data_inicio = st.date_input("Data Inicial", value=data_inicial_padrao, format="DD/MM/YYYY")
 with col_dt2:
     data_fim = st.date_input("Data Final", value=hoje, format="DD/MM/YYYY")
 
