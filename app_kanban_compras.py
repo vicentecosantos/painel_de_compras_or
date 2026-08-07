@@ -1,9 +1,19 @@
 import streamlit as st
 import pandas as pd
 from datetime import date, timedelta
+import time 
 
 # Mantém a tela inteira sem rolagem geral
 st.set_page_config(layout="wide", page_title="Painel Oracon", page_icon="Oracon_Logo.png")
+
+# --- FORÇAR A BARRA DE PROGRESSO A FICAR VERDE ---
+st.markdown("""
+    <style>
+    .stProgress > div > div > div > div {
+        background-color: #28a745; /* Código da cor verde */
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # Usamos colunas para deixar a imagem perfeitamente alinhada ao lado do texto
 col_logo, col_titulo = st.columns([2, 15])
@@ -13,11 +23,13 @@ with col_titulo:
     st.title("Painel de Compras Oracon")
     st.markdown("Visão de suprimentos para engenheiros com atualização diária.")
 
+# --- RESERVA O ESPAÇO PARA A BARRA DE PROGRESSO (Abaixo do título) ---
+loading_placeholder = st.empty()
+
 @st.cache_data(ttl=900)
 def load_data():
     df = pd.read_excel("Relatorio_Painel de Compras.xlsx")
     
-    # 1. Converte colunas de datas para formato de tempo
     colunas_datas = [
         'Data da solicitação', 
         'Data autorização da solicitação', 
@@ -29,8 +41,6 @@ def load_data():
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], dayfirst=True, errors='coerce')
             
-    # 2. LIMPEZA DE DADOS (NOVO): Remove o código do centro de custo do nome da obra
-    # Se a célula for um texto e contiver " - ", ele corta a string e pega apenas a 2ª parte (índice 1).
     if 'Obra' in df.columns:
         df['Obra'] = df['Obra'].apply(
             lambda x: x.split(' - ', 1)[1].strip() if isinstance(x, str) and ' - ' in x else x
@@ -45,112 +55,91 @@ except FileNotFoundError:
     st.stop()
 
 
-# --- 1. FILTROS NA BARRA LATERAL ---
+# --- 1. FILTROS NA BARRA LATERAL (COM BOTÃO 'APLICAR') ---
 st.sidebar.header("🔍 Filtros do Painel")
 
-# --- NOVO: Filtro de Obra no TOPO ---
-st.sidebar.subheader("🏢 Filtro de Obra")
-# Lemos as obras direto da base "mãe" (df) ANTES de aplicar datas, para exibir sempre todas as obras
-obras_disponiveis = df['Obra'].dropna().unique().tolist()
-obras_disponiveis.sort()
-obras_selecionadas = st.sidebar.multiselect(
-    "Filtrar por Obra:",
-    options=obras_disponiveis,
-    default=[]
-)
+with st.sidebar.form(key='filtro_form'):
+    
+    st.subheader("🏢 Filtro de Obra")
+    obras_disponiveis = df['Obra'].dropna().unique().tolist()
+    obras_disponiveis.sort()
+    obras_selecionadas = st.multiselect("Filtrar por Obra:", options=obras_disponiveis, default=[])
+    
+    st.markdown("---")
+    
+    st.subheader("📅 Período da Solicitação")
+    hoje = date.today()
+    data_inicial_padrao = hoje - timedelta(days=7) 
+    
+    col_dt1, col_dt2 = st.columns(2)
+    with col_dt1:
+        data_inicio = st.date_input("Data Inicial", value=data_inicial_padrao, format="DD/MM/YYYY")
+    with col_dt2:
+        data_fim = st.date_input("Data Final", value=hoje, format="DD/MM/YYYY")
+        
+    st.markdown("---")
+    
+    solicitacoes_disponiveis = df['Nº da Solicitação'].dropna().unique().astype(str).tolist()
+    solicitacoes_disponiveis.sort()
+    solicitacoes_selecionadas = st.multiselect("Nº da Solicitação:", options=solicitacoes_disponiveis, default=[])
+    
+    pedidos_disponiveis = df['N° do Pedido'].dropna().unique().astype(str).tolist()
+    pedidos_disponiveis.sort()
+    pedidos_selecionados = st.multiselect("Nº do Pedido:", options=pedidos_disponiveis, default=[])
+    
+    insumos_disponiveis = df['Descrição do insumo'].dropna().unique().astype(str).tolist()
+    insumos_disponiveis.sort()
+    insumos_selecionados = st.multiselect("Filtrar por Insumo:", options=insumos_disponiveis, default=[])
+    
+    fornecedores_disponiveis = df['Fornecedor'].dropna().unique().astype(str).tolist()
+    fornecedores_disponiveis.sort()
+    fornecedores_selecionados = st.multiselect("Filtrar por Fornecedor:", options=fornecedores_disponiveis, default=[])
+    
+    submit_button = st.form_submit_button(label='Aplicar Filtros')
 
-st.sidebar.markdown("---")
 
-# --- Filtro de Datas (Agora em segundo lugar) ---
-st.sidebar.subheader("📅 Período da Solicitação")
-hoje = date.today()
-# 1. Altera o nome da variável e o timedelta escolhido:
-data_inicial_padrao = hoje - timedelta(days=7)
+# --- EXECUÇÃO DA BARRA DE PROGRESSO E FILTRAGEM ---
 
-col_dt1, col_dt2 = st.sidebar.columns(2)
-with col_dt1:
-    data_inicio = st.date_input("Data Inicial", value=data_inicial_padrao, format="DD/MM/YYYY")
-with col_dt2:
-    data_fim = st.date_input("Data Final", value=hoje, format="DD/MM/YYYY")
+# Passo Inicial (0%)
+progress_bar = loading_placeholder.progress(0, text="Iniciando carregamento dos dados...")
+time.sleep(0.1) # Micro-pausas para a barra ser vista pelo engenheiro
 
-st.sidebar.markdown("---")
-
-
-# --- APLICAÇÃO DOS FILTROS PRINCIPAIS NA BASE ---
-# 1. Aplica o corte de datas
+# Passo 1: Corte de datas (25%)
+progress_bar.progress(25, text="Aplicando filtro de datas...")
 df_base = df[
     (df['Data da solicitação'].dt.date >= data_inicio) & 
     (df['Data da solicitação'].dt.date <= data_fim)
 ]
-
-# 2. Aplica o corte de obras (se alguma foi selecionada)
-if obras_selecionadas:
-    df_base = df_base[df_base['Obra'].isin(obras_selecionadas)]
-
-
-# --- FILTROS BIDIRECIONAIS (Solicitação <-> Pedido) ---
-pedidos_ja_selecionados = st.session_state.get('key_pedidos', [])
-if pedidos_ja_selecionados:
-    df_sol_options = df_base[df_base['N° do Pedido'].astype(str).isin(pedidos_ja_selecionados)]
-else:
-    df_sol_options = df_base
-
-solicitacoes_disponiveis = df_sol_options['Nº da Solicitação'].dropna().unique().astype(str).tolist()
-solicitacoes_disponiveis.sort()
-solicitacoes_selecionadas = st.sidebar.multiselect(
-    "Nº da Solicitação:",
-    options=solicitacoes_disponiveis,
-    key='key_solicitacoes'
-)
-
-if solicitacoes_selecionadas:
-    df_ped_options = df_base[df_base['Nº da Solicitação'].astype(str).isin(solicitacoes_selecionadas)]
-else:
-    df_ped_options = df_base
-
-pedidos_disponiveis = df_ped_options['N° do Pedido'].dropna().unique().astype(str).tolist()
-pedidos_disponiveis.sort()
-pedidos_selecionados = st.sidebar.multiselect(
-    "Nº do Pedido:",
-    options=pedidos_disponiveis,
-    key='key_pedidos'
-)
-
-# Filtro intermediário após opções bidirecionais
 df_filtrado = df_base.copy()
+time.sleep(0.1)
+
+# Passo 2: Obras e Solicitações (50%)
+progress_bar.progress(50, text="Processando obras e solicitações...")
+if obras_selecionadas:
+    df_filtrado = df_filtrado[df_filtrado['Obra'].isin(obras_selecionadas)]
 if solicitacoes_selecionadas:
     df_filtrado = df_filtrado[df_filtrado['Nº da Solicitação'].astype(str).isin(solicitacoes_selecionadas)]
+time.sleep(0.1)
+
+# Passo 3: Pedidos e Fornecedores (75%)
+progress_bar.progress(75, text="Ajustando pedidos e fornecedores...")
 if pedidos_selecionados:
     df_filtrado = df_filtrado[df_filtrado['N° do Pedido'].astype(str).isin(pedidos_selecionados)]
-
-
-# --- FILTROS CASCATA (Insumo -> Fornecedor) ---
-# 1. Filtro de Insumo
-insumos_disponiveis = df_filtrado['Descrição do insumo'].dropna().unique().astype(str).tolist()
-insumos_disponiveis.sort()
-insumos_selecionados = st.sidebar.multiselect(
-    "Filtrar por Insumo:",
-    options=insumos_disponiveis,
-    default=[]
-)
-
 if insumos_selecionados:
     df_filtrado = df_filtrado[df_filtrado['Descrição do insumo'].astype(str).isin(insumos_selecionados)]
-
-# 2. Filtro de Fornecedor
-fornecedores_disponiveis = df_filtrado['Fornecedor'].dropna().unique().astype(str).tolist()
-fornecedores_disponiveis.sort()
-fornecedores_selecionados = st.sidebar.multiselect(
-    "Filtrar por Fornecedor:",
-    options=fornecedores_disponiveis,
-    default=[]
-)
-
 if fornecedores_selecionados:
     df_filtrado = df_filtrado[df_filtrado['Fornecedor'].astype(str).isin(fornecedores_selecionados)]
+time.sleep(0.1)
+
+# Passo 4: Finalização (100%)
+progress_bar.progress(100, text="Montando os cartões do Kanban...")
+time.sleep(0.3) # Segura no 100% por um terço de segundo para dar sensação de completude
+
+# Apaga a barra da tela usando o empty() para não ocupar espaço
+loading_placeholder.empty()
 
 
-# --- LÓGICA DE FILTRAGEM PARA AS 5 COLUNAS ---
+# --- LÓGICA DE SEPARAÇÃO DAS COLUNAS KANBAN ---
 mask_sem_pedido = df_filtrado['N° do Pedido'].isna()
 insumos_aut = df_filtrado[mask_sem_pedido & (df_filtrado['Situação autorização do item'] == 'Autorizado')]
 insumos_nao_aut = df_filtrado[mask_sem_pedido & (df_filtrado['Situação autorização do item'] != 'Autorizado')]
@@ -188,8 +177,6 @@ def render_card(row, coluna):
         if pd.isna(detalhe):
             detalhe = '-'
         st.caption(f"Detalhe: {detalhe}")
-        
-        # A Obra aqui já vem "limpa" graças ao nosso lambda no inicio do código!
         st.caption(f"Obra: {row.get('Obra', '-')}")
 
         if "insumo" in coluna:
@@ -236,6 +223,7 @@ def render_card(row, coluna):
                 st.write(f"Nº da Solicitação: {row.get('Nº da Solicitação', '-')}")
                 st.write(f"Fornecedor: {row.get('Fornecedor', '-')}")
                 st.write(f"Data da solicitação: {formatar_data(row.get('Data da solicitação'))}")
+
 
 # --- CONSTRUÇÃO DO KANBAN ---
 head1, head2, head3, head4, head5 = st.columns(5)
