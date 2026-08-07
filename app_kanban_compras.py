@@ -6,11 +6,29 @@ import time
 # Mantém a tela inteira sem rolagem geral
 st.set_page_config(layout="wide", page_title="Painel Oracon", page_icon="Oracon_Logo.png")
 
-# --- FORÇAR A BARRA DE PROGRESSO A FICAR VERDE ---
+# --- AJUSTES VISUAIS VIA CSS (COR DA BARRA E ESPAÇAMENTOS) ---
 st.markdown("""
     <style>
+    /* 1. Cor verde para a barra de progresso */
     .stProgress > div > div > div > div {
-        background-color: #28a745; /* Código da cor verde */
+        background-color: #28a745;
+    }
+
+    /* 2. Reduz o espaço em branco no topo da barra lateral */
+    section[data-testid="stSidebar"] div.block-container {
+        padding-top: 1.5rem !important;
+        padding-bottom: 1rem !important;
+    }
+
+    /* 3. Reduz a distância vertical (gap) entre os filtros na barra lateral */
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+        gap: 0.4rem !important;
+    }
+
+    /* 4. Torna as linhas divisórias mais sutis e compactas */
+    [data-testid="stSidebar"] hr {
+        margin-top: 0.5rem !important;
+        margin-bottom: 0.5rem !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -55,10 +73,21 @@ except FileNotFoundError:
     st.stop()
 
 
-# --- 1. FILTROS NA BARRA LATERAL (COM BOTÃO 'APLICAR') ---
+# --- 1. FILTROS NA BARRA LATERAL ---
 st.sidebar.header("🔍 Filtros do Painel")
 
 with st.sidebar.form(key='filtro_form'):
+    
+    # -------------------------------------------------------------
+    # BOTÃO NO TOPO: Posicionado logo no início do formulário
+    # -------------------------------------------------------------
+    submit_button = st.form_submit_button(
+        label='🚀 APLICAR FILTROS', 
+        type='primary', 
+        use_container_width=True
+    )
+    
+    st.markdown("---")
     
     st.subheader("🏢 Filtro de Obra")
     obras_disponiveis = df['Obra'].dropna().unique().tolist()
@@ -69,7 +98,7 @@ with st.sidebar.form(key='filtro_form'):
     
     st.subheader("📅 Período da Solicitação")
     hoje = date.today()
-    data_inicial_padrao = hoje - timedelta(days=7) 
+    data_inicial_padrao = hoje - timedelta(days=30) 
     
     col_dt1, col_dt2 = st.columns(2)
     with col_dt1:
@@ -94,15 +123,13 @@ with st.sidebar.form(key='filtro_form'):
     fornecedores_disponiveis = df['Fornecedor'].dropna().unique().astype(str).tolist()
     fornecedores_disponiveis.sort()
     fornecedores_selecionados = st.multiselect("Filtrar por Fornecedor:", options=fornecedores_disponiveis, default=[])
-    
-    submit_button = st.form_submit_button(label='Aplicar Filtros')
 
 
 # --- EXECUÇÃO DA BARRA DE PROGRESSO E FILTRAGEM ---
 
 # Passo Inicial (0%)
 progress_bar = loading_placeholder.progress(0, text="Iniciando carregamento dos dados...")
-time.sleep(0.1) # Micro-pausas para a barra ser vista pelo engenheiro
+time.sleep(0.1)
 
 # Passo 1: Corte de datas (25%)
 progress_bar.progress(25, text="Aplicando filtro de datas...")
@@ -133,9 +160,9 @@ time.sleep(0.1)
 
 # Passo 4: Finalização (100%)
 progress_bar.progress(100, text="Montando os cartões do Kanban...")
-time.sleep(0.3) # Segura no 100% por um terço de segundo para dar sensação de completude
+time.sleep(0.3)
 
-# Apaga a barra da tela usando o empty() para não ocupar espaço
+# Apaga a barra da tela
 loading_placeholder.empty()
 
 
