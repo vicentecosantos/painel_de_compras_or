@@ -25,10 +25,10 @@ st.markdown("""
         gap: 0.4rem !important;
     }
 
-    /* 4. Torna as linhas divisórias mais sutis e compactas */
+    /* 4. Ajusta margem das linhas divisórias para afastar do título seguinte */
     [data-testid="stSidebar"] hr {
         margin-top: 0.8rem !important;
-        margin-bottom: 0.8rem !important;
+        margin-bottom: 1.2rem !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -66,7 +66,7 @@ def load_data():
             lambda x: x.split(' - ', 1)[1].strip() if isinstance(x, str) and ' - ' in x else x
         )
         
-    # 3. LIMPEZA DE DADOS (NOVO): Remove o código numérico do nome do Fornecedor
+    # 3. LIMPEZA DE DADOS: Remove o código numérico do nome do Fornecedor
     if 'Fornecedor' in df.columns:
         df['Fornecedor'] = df['Fornecedor'].apply(
             lambda x: x.split(' - ', 1)[1].strip() if isinstance(x, str) and ' - ' in x else x
@@ -88,14 +88,14 @@ with st.sidebar.form(key='filtro_form'):
     
     # BOTÃO NO TOPO
     submit_button = st.form_submit_button(
-        label='APLICAR FILTROS', 
+        label='🚀 APLICAR FILTROS', 
         type='primary', 
         use_container_width=True
     )
     
     st.markdown("---")
     
-    st.subheader("🏢 Obra / Centro de Custo")
+    st.subheader("🏢 Filtro de Obra")
     obras_disponiveis = df['Obra'].dropna().unique().tolist()
     obras_disponiveis.sort()
     obras_selecionadas = st.multiselect("Filtrar por Obra:", options=obras_disponiveis, default=[])
@@ -104,7 +104,7 @@ with st.sidebar.form(key='filtro_form'):
     
     st.subheader("📅 Período da Solicitação")
     hoje = date.today()
-    data_inicial_padrao = hoje - timedelta(days=7) 
+    data_inicial_padrao = hoje - timedelta(days=30) 
     
     col_dt1, col_dt2 = st.columns(2)
     with col_dt1:
@@ -131,41 +131,50 @@ with st.sidebar.form(key='filtro_form'):
     fornecedores_selecionados = st.multiselect("Filtrar por Fornecedor:", options=fornecedores_disponiveis, default=[])
 
 
-# --- EXECUÇÃO DA BARRA DE PROGRESSO E FILTRAGEM ---
+# --- EXECUÇÃO DA BARRA DE PROGRESSO E FILTRAGEM CONDICIONAL ---
 
-# Passo Inicial (0%)
 progress_bar = loading_placeholder.progress(0, text="Iniciando carregamento dos dados...")
 time.sleep(0.1)
 
-# Passo 1: Corte de datas (25%)
-progress_bar.progress(25, text="Aplicando filtro de datas...")
-df_base = df[
-    (df['Data da solicitação'].dt.date >= data_inicio) & 
-    (df['Data da solicitação'].dt.date <= data_fim)
-]
-df_filtrado = df_base.copy()
-time.sleep(0.1)
+# VERIFICAÇÃO DO "FILTRO SUPREMO" (Se há solicitação ou pedido digitado/selecionado)
+tem_busca_direta = bool(solicitacoes_selecionadas or pedidos_selecionados)
 
-# Passo 2: Obras e Solicitações (50%)
-progress_bar.progress(50, text="Processando obras e solicitações...")
-if obras_selecionadas:
-    df_filtrado = df_filtrado[df_filtrado['Obra'].isin(obras_selecionadas)]
-if solicitacoes_selecionadas:
-    df_filtrado = df_filtrado[df_filtrado['Nº da Solicitação'].astype(str).isin(solicitacoes_selecionadas)]
-time.sleep(0.1)
+if tem_busca_direta:
+    # MODO BUSCA DIRETA: Ignora completamente corte de Datas e Obras
+    progress_bar.progress(30, text="Busca direta por código detectada: Ignorando limites de data e obra...")
+    df_filtrado = df.copy()
+    time.sleep(0.1)
+    
+    progress_bar.progress(60, text="Filtrando números de solicitação e pedido...")
+    if solicitacoes_selecionadas:
+        df_filtrado = df_filtrado[df_filtrado['Nº da Solicitação'].astype(str).isin(solicitacoes_selecionadas)]
+    if pedidos_selecionados:
+        df_filtrado = df_filtrado[df_filtrado['N° do Pedido'].astype(str).isin(pedidos_selecionados)]
+    time.sleep(0.1)
 
-# Passo 3: Pedidos, Insumos e Fornecedores (75%)
-progress_bar.progress(75, text="Ajustando pedidos, insumos e fornecedores...")
-if pedidos_selecionados:
-    df_filtrado = df_filtrado[df_filtrado['N° do Pedido'].astype(str).isin(pedidos_selecionados)]
+else:
+    # MODO NAVEGAÇÃO PADRÃO: Aplica corte de datas e obras
+    progress_bar.progress(30, text="Aplicando filtro por período de datas...")
+    df_filtrado = df[
+        (df['Data da solicitação'].dt.date >= data_inicio) & 
+        (df['Data da solicitação'].dt.date <= data_fim)
+    ].copy()
+    time.sleep(0.1)
+    
+    progress_bar.progress(60, text="Aplicando filtro por obras...")
+    if obras_selecionadas:
+        df_filtrado = df_filtrado[df_filtrado['Obra'].isin(obras_selecionadas)]
+    time.sleep(0.1)
+
+# FILTROS ADICIONAIS: Insumos e Fornecedores aplicam-se em ambos os casos
+progress_bar.progress(85, text="Ajustando filtros de insumos e fornecedores...")
 if insumos_selecionados:
     df_filtrado = df_filtrado[df_filtrado['Descrição do insumo'].astype(str).isin(insumos_selecionados)]
 if fornecedores_selecionados:
     df_filtrado = df_filtrado[df_filtrado['Fornecedor'].astype(str).isin(fornecedores_selecionados)]
 time.sleep(0.1)
 
-# Passo 4: Finalização (100%)
-progress_bar.progress(100, text="Atualizando informações do painel...")
+progress_bar.progress(100, text="Montando os cartões do Kanban...")
 time.sleep(0.3)
 
 # Apaga a barra da tela
