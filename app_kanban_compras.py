@@ -104,7 +104,7 @@ with st.sidebar.form(key='filtro_form'):
     
     st.subheader("📅 Período da Solicitação")
     hoje = date.today()
-    data_inicial_padrao = hoje - timedelta(days=30) 
+    data_inicial_padrao = hoje - timedelta(days=10) 
     
     col_dt1, col_dt2 = st.columns(2)
     with col_dt1:
